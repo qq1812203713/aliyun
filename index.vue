@@ -55,7 +55,7 @@
 
 <script>
 import VueAliplayer from '@/components/play/AliPlayer.vue'
-import { getPageResource, getUserResource, getLastResourceId } from '@/api/student/Assignment'
+import { getPageResource, getUserResource, postSaveWatchHistory, getLastResourceId } from '@/api/student/Assignment'
 export default {
   name: 'User',
   components: {
@@ -83,7 +83,8 @@ export default {
       isComplete: '0',
       seconds: '0',
       id: '',
-      playListShow: false
+      playListShow: false,
+      pulay: false
     }
   },
   created () {
@@ -141,6 +142,19 @@ export default {
         requestAnimationFrame(fn)
       }
     })
+    window.addEventListener('beforeunload', function (event) {
+      // 在窗口关闭之前执行的操作
+      setTimeout(function () {
+        // 确保事件能够被触发
+        let data = {
+          id: this.id,
+          userId: this.$store.state.user.user.id,
+          resourceId: this.playListId,
+          second: this.videoTime ? this.videoTime : this.seconds
+        }
+        postSaveWatchHistory(data)
+      }, 0)
+    })
   },
   computed: {},
   watch: {
@@ -167,6 +181,16 @@ export default {
       deep: true
     }
   },
+  beforeDestroy () {
+    let data = {
+      id: this.id,
+      userId: this.$store.state.user.user.id,
+      resourceId: this.playListId,
+      second: this.videoTime ? this.videoTime : this.seconds
+    }
+    postSaveWatchHistory(data)
+  },
+
   methods: {
     getVideoData () {
       // 1、调用后台接口获取视频vid,playAuth(鉴权地址),cover(视频封面)的逻辑
@@ -186,26 +210,67 @@ export default {
     setTime () {
       var interval = setInterval(() => {
         if (this.endTimeFlag) {
+          console.log('暂停')
           clearInterval(interval)
+          let data = {
+            id: this.$route.query.id,
+            userId: this.$store.state.user.user.id,
+            resourceId: this.playListId,
+            second: this.videoTime ? this.videoTime : this.seconds
+          }
+          postSaveWatchHistory(data)
         }
         this.videoTime = this.$refs.player?.getCurrentTime()
         // 进来后用户首次播放完毕给用户所有视频权限
+        if (this.isComplete === '0') {
+          if (Number(this.seconds) < this.videoTime) {
+            let data = {
+              id: this.$route.query.id,
+              userId: this.$store.state.user.user.id,
+              resourceId: this.playListId,
+              second: this.videoTime,
+              isComplete: '1'
+            }
+            postSaveWatchHistory(data).then((res) => {
+              getPageResource({
+                current: '1',
+                size: '-1',
+                id: this.$route.query.id,
+                userId: this.$store.state.user.user.id
+              }).then((res) => {
+                this.playList = res.data.records
+              })
+            })
+            clearInterval(interval)
+          }
+        }
       }, 1000)
     },
     playBtn (data) {
+      if (this.pulay) {
+        let datas = {
+        id: this.id,
+        userId: this.$store.state.user.user.id,
+        resourceId: this.playListId,
+        second: this.videoTime ? this.videoTime : this.seconds
+      }
+      postSaveWatchHistory(datas)
+      } else {
+        this.pulay = true
+      }
       this.playShow = false
       this.playListId = data.id
       getUserResource({ userId: this.$store.state.user.user.id, id: this.$route.query.id, resourceId: data.id }).then(
         (res) => {
           this.videoTimes = res.data.lastStudyTime
           // 判断是否首次进来，如果是禁止拖拽快进
-          // if (res.data.isSpeed === 0) {
-          //   this.FirstTime = true
-          //   this.speedPlay = false
-          // } else {
+          if (res.data.isSpeed === 0) {
+            this.FirstTime = true
+            this.speedPlay = false
+          } else {
             this.FirstTime = false
             this.speedPlay = true
-          // }
+          }
           this.isComplete = res.data.isComplete ? res.data.isComplete : '0'
           this.cover = data.resourcePhoto
           this.source = data.resourceUrl
@@ -273,7 +338,6 @@ export default {
       font-weight: 400;
       color: #333333;
       overflow-y: auto;
-
       p {
         letter-spacing: 1px;
         line-height: 22px;
